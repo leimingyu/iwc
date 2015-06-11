@@ -1,0 +1,9 @@
+Isolated Word Speech Recognition
+
+Target:
+	[1] Hidden Markov Model : CPU / Optimized-CPU / GPU
+	[2] Neural Networks     : CPU / Optimized-CPU / GPU
+	[3] Compare the performance on different platforms
+
+Authors:
+	Leiming Yu (ylm@ece.neu.edu) , Northestern Univ., Boston, MA, USA
