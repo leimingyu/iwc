@@ -1,0 +1,216 @@
+#include <iostream>
+#include <math.h>
+
+using namespace std;
+
+// It was needed to add the number of samples (m) inside the argument list
+// It is possible to find m using sizeof(y)/sizeof(y[0]) inside main function
+float nnCostFunction(float* &grad, float* nn_params,
+    int input_layer_size, int hidden_layer_size, int num_labels,
+    float* X, float* y, float lambda, int m)
+    {
+        float*** Theta1=new float**[hidden_layer_size]; //Allocating a pointer to Theta1 values
+        for(int i=0;i<hidden_layer_size;i++) Theta1[i]=new float*[input_layer_size+1];
+
+        float*** Theta2=new float**[num_labels]; //Allocating a pointer to Theta2 values
+        for(int i=0;i<num_labels;i++) Theta2[i]=new float*[hidden_layer_size+1];
+
+        // Theta1 pointer matrix will point to nn_params elements that correspond to Theta1
+        // No copy is needed
+        for(int j=0;j<input_layer_size+1;j++){
+            for(int i=0;i<hidden_layer_size;i++){
+                    Theta1[i][j]=&nn_params[i+(j*hidden_layer_size)];
+            }
+        }
+
+        // Theta2 pointer matrix will point to nn_params elements that correspond to Theta2
+        // No copy is needed
+        for(int j=0;j<hidden_layer_size+1;j++){
+            for(int i=0;i<num_labels;i++){
+                    Theta2[i][j]=&nn_params[i+(j*num_labels)+(hidden_layer_size*(input_layer_size+1))];
+            }
+        }
+
+        float J=0;
+
+        // Allocating Theta1_grad and initializing with zeros
+        float** Theta1_grad=new float*[hidden_layer_size];
+        for(int i=0;i<hidden_layer_size;i++){
+                Theta1_grad[i]=new float[input_layer_size+1];
+                for(int j=0;j<input_layer_size+1;j++){
+                    Theta1_grad[i][j]=0;
+                }
+        }
+
+        // Allocating Theta1_grad and initializing with zeros
+        float** Theta2_grad=new float*[num_labels];
+        for(int i=0;i<num_labels;i++){
+            Theta2_grad[i]=new float[hidden_layer_size+1];
+            for(int j=0;j<hidden_layer_size+1;j++){
+                    Theta2_grad[i][j]=0;
+                }
+        }
+
+
+        float** activ=new float*[m];
+        for(int i=0;i<m;i++) activ[i]=new float[hidden_layer_size+1];
+
+        float** out=new float*[m];
+        for(int i=0;i<m;i++) out[i]=new float[num_labels];
+
+        float reg_term=0;
+
+        float** delta_2=new float*[m];
+        for(int i=0;i<m;i++){
+            delta_2[i]=new float[hidden_layer_size];
+            for(int j=0;j<hidden_layer_size;j++){
+                    delta_2[i][j]=0;
+                }
+        }
+
+        float** delta_3=new float*[m];
+        for(int i=0;i<m;i++){
+            delta_3[i]=new float[num_labels];
+            for(int j=0;j<num_labels;j++){
+                    delta_3[i][j]=0;
+                }
+        }
+
+        grad=new float[(hidden_layer_size*(input_layer_size+1))+(num_labels*(hidden_layer_size+1))];
+
+        //------------------------------------ Part 1 ------------------------------------
+
+        // Complete activ computation: X and Theta1 multiplication, sigmoid, and 1s column addition
+        for(int i=0;i<m;i++){
+            for(int j=1;j<hidden_layer_size+1;j++){
+                // The X's 1s columns is not physically added to X,
+                // but is is take in accont on the overall computation
+                activ[i][j]=*Theta1[j-1][0];
+                for(int k=1;k<input_layer_size+1;k++){
+                    activ[i][j]=*((X+i*input_layer_size)+k-1)**Theta1[j-1][k]+activ[i][j];
+                }
+                //sigmoid after each multiplication
+                activ[i][j]=1.0/(1.0+exp(-activ[i][j]));
+            }
+            // 1s column addition in the end of the computation
+            activ[i][0]=1.0;
+        }
+
+        for(int i=0;i<m;i++){
+            for(int j=0;j<num_labels;j++){
+                out[i][j]=*Theta2[j][0];
+                for(int k=1;k<hidden_layer_size+1;k++){
+                    out[i][j]=activ[i][k]**Theta2[j][k]+out[i][j];
+                }
+                out[i][j]=1.0/(1.0+exp(-out[i][j]));
+            }
+        }
+
+        // y is not reformated,
+        // instead it is compared to the element column on each iteration
+        for(int i=0;i<m;i++){
+            for(int j=0;j<num_labels;j++){
+                if(y[i]==j+1) J=J-log(out[i][j]);
+                else J=J-log(1-out[i][j]);
+            }
+        }
+
+        J=J/m;
+
+        // reg_term is computed for each Theta separately and accomulated
+        for(int i=0;i<hidden_layer_size;i++){
+            for(int j=1;j<input_layer_size+1;j++){
+                reg_term=pow(*Theta1[i][j],2.0)+reg_term;
+            }
+        }
+
+        for(int i=0;i<num_labels;i++){
+            for(int j=1;j<hidden_layer_size+1;j++){
+                reg_term=pow(*Theta2[i][j],2.0)+reg_term;
+            }
+        }
+
+        reg_term=(lambda/(2*m))*reg_term;
+        J=J+reg_term;
+
+        //------------------------------------ Part 2 ------------------------------------
+
+        // y is not reformated,
+        // instead it is compared to the element column on each iteration
+        for(int i=0;i<m;i++){
+            for(int j=0;j<num_labels;j++){
+                if(y[i]==j+1) delta_3[i][j]=out[i][j]-1;
+                else delta_3[i][j]=out[i][j];
+            }
+        }
+
+        // delta_2 is competely computed in this for loop:
+        // delta_3 and Theta2 multiplication, and 1s column addition
+        for(int i=0;i<m;i++){
+            for(int j=1;j<hidden_layer_size+1;j++){
+                for(int k=0;k<num_labels;k++){
+                    delta_2[i][j-1]=delta_3[i][k]**Theta2[k][j]+delta_2[i][j-1];
+                }
+                delta_2[i][j-1]=delta_2[i][j-1]*(activ[i][j]*(1-activ[i][j]));
+            }
+        }
+
+        // Theta1_grad and Theta2_grad without regularization
+        // For each smaple the ThetaX_grad element is computed and accumulated
+        // In the last itteration (k=m-1) each elemnt is divided by m
+
+        for(int k=0;k<m;k++){
+            for(int i=0;i<hidden_layer_size;i++){
+                Theta1_grad[i][0]=Theta1_grad[i][0]+delta_2[k][i];
+                if(k==m-1) Theta1_grad[i][0]=Theta1_grad[i][0]/m;
+                for(int j=1;j<input_layer_size+1;j++){
+                    Theta1_grad[i][j]=Theta1_grad[i][j]+delta_2[k][i]**((X+k*input_layer_size)+j-1);
+                    if(k==m-1) Theta1_grad[i][j]=Theta1_grad[i][j]/m;
+                }
+            }
+        }
+
+        for(int k=0;k<m;k++){
+            for(int i=0;i<num_labels;i++){
+                for(int j=0;j<hidden_layer_size+1;j++){
+                    Theta2_grad[i][j]=Theta2_grad[i][j]+delta_3[k][i]*activ[k][j];
+                    if(k==m-1) Theta2_grad[i][j]=Theta2_grad[i][j]/m;
+                }
+            }
+        }
+
+        //------------------------------------ Part 3 ------------------------------------
+
+        // ThetaX_grad regularization
+        // Though ThetaX first column was not set to 0 previusly,
+        // it s take in accont in the computation
+
+        for(int i=0;i<hidden_layer_size;i++){
+            for(int j=1;j<input_layer_size+1;j++){
+                Theta1_grad[i][j]=Theta1_grad[i][j]+(lambda/m)**Theta1[i][j];
+            }
+        }
+
+        for(int i=0;i<num_labels;i++){
+            for(int j=1;j<hidden_layer_size+1;j++){
+                Theta2_grad[i][j]=Theta2_grad[i][j]+(lambda/m)**Theta2[i][j];
+            }
+        }
+
+        // Unrolling gradients
+        // It is done for Theta1 and Theta2 induvidually
+
+        for(int j=0;j<input_layer_size+1;j++){
+            for(int i=0;i<hidden_layer_size;i++){
+                grad[i+(j*hidden_layer_size)]=Theta1_grad[i][j];
+            }
+        }
+
+        for(int j=0;j<hidden_layer_size+1;j++){
+            for(int i=0;i<num_labels;i++){
+                grad[i+(j*num_labels)+(hidden_layer_size*(input_layer_size+1))]=Theta2_grad[i][j];
+            }
+        }
+
+        return J;
+    }
