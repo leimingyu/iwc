@@ -40,7 +40,6 @@ void *nnCostThread(void *thread_data)
     float my_J=0;
     float my_reg_term=0;
 
-    int my_begin0=(my_data->id)*(my_data->div0);
     int my_end0;
     if(my_data->id==my_data->threadNum-1) my_end0=my_data->m;
     else my_end0=((my_data->id+1)*(my_data->div0));
