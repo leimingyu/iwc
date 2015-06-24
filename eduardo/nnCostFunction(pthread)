@@ -1,0 +1,373 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <iostream>
+#include <math.h>
+#include <pthread.h>
+
+using namespace std;
+
+struct NNcost_thread_data{
+    int id;
+    int input_layer_size;
+    int hidden_layer_size;
+    int num_labels;
+    int m;
+    float lambda;
+    float *y;
+    float *X;
+    float *grad;
+    float ***Theta1;
+    float ***Theta2;
+    float **Theta1_grad;
+    float **Theta2_grad;
+    float **activ;
+    float **out;
+    float **delta_2;
+    float **delta_3;
+    float *J;
+    float *reg_term;
+    int threadNum;
+    int div0;
+    int div1;
+    int div2;
+    pthread_mutex_t* mutex;
+};
+
+void *nnCostThread(void *thread_data)
+{
+    struct NNcost_thread_data *my_data;
+    my_data=(struct NNcost_thread_data *) thread_data;
+    float my_J=0;
+    float my_reg_term=0;
+
+    int my_begin0=(my_data->id)*(my_data->div0);
+    int my_end0;
+    if(my_data->id==my_data->threadNum-1) my_end0=my_data->m;
+    else my_end0=((my_data->id+1)*(my_data->div0));
+
+    float my_end1;
+    if((my_data->id+1)*my_data->div1>(my_data->hidden_layer_size*my_data->input_layer_size))
+        my_end1=(my_data->hidden_layer_size*(my_data->input_layer_size+1));
+    else my_end1=((my_data->id+1)*(my_data->div1));
+
+    float my_end2;
+    if((my_data->id+1)*my_data->div2>((my_data->hidden_layer_size+1)*my_data->num_labels))
+        my_end2=(my_data->hidden_layer_size*my_data->num_labels);
+    else my_end2=((my_data->id+1)*(my_data->div2));
+
+    //------------------------------------ Part 1 ------------------------------------
+
+        // Complete activ computation: X and Theta1 multiplication, sigmoid, and 1s column addition
+        for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
+            for(int j=1;j<my_data->hidden_layer_size+1;j++){
+                // The X's 1s columns is not physically added to X,
+                // but is is take in accont on the overall computation
+                my_data->activ[i][j]=*my_data->Theta1[j-1][0];
+                for(int k=1;k<my_data->input_layer_size+1;k++){
+                    my_data->activ[i][j]=
+                        *(((my_data->X)+i*my_data->input_layer_size)+k-1)**my_data->Theta1[j-1][k]
+                        +my_data->activ[i][j];
+                }
+                //sigmoid after each multiplication
+                my_data->activ[i][j]=1.0/(1.0+exp(-my_data->activ[i][j]));
+            }
+            // 1s column addition in the end of the computation
+            my_data->activ[i][0]=1.0;
+        }
+
+        for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
+            for(int j=0;j<my_data->num_labels;j++){
+                my_data->out[i][j]=*my_data->Theta2[j][0];
+                for(int k=1;k<my_data->hidden_layer_size+1;k++){
+                    my_data->out[i][j]=my_data->activ[i][k]**my_data->Theta2[j][k]+my_data->out[i][j];
+                }
+                my_data->out[i][j]=1.0/(1.0+exp(-my_data->out[i][j]));
+            }
+        }
+
+        // y is not reformated,
+        // instead it is compared to the element column on each iteration
+        for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
+            for(int j=0;j<my_data->num_labels;j++){
+                if((my_data->y)[i]==j+1) my_J=my_J-log(my_data->out[i][j]);
+                else my_J=my_J-log(1-my_data->out[i][j]);
+            }
+        }
+
+        my_J=my_J/my_data->m;
+
+        // reg_term is computed for each Theta separately and accomulated
+
+        for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
+            if((k%(my_data->input_layer_size+1))!=0)
+                my_reg_term=
+                    pow(*my_data->Theta1[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))],2.0)
+                    +my_reg_term;
+        }
+
+        for(int k=(my_data->id)*(my_data->div2);k<my_end2;k++){
+            if((k%(my_data->hidden_layer_size+1))!=0)
+            my_reg_term=
+                pow(*my_data->Theta2[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))],2.0)
+                +my_reg_term;
+        }
+
+        my_reg_term=(my_data->lambda/(2*my_data->m))*my_reg_term;
+        my_J=my_J+my_reg_term;
+
+        //------------------------------------ Part 2 ------------------------------------
+
+        // y is not reformated,
+        // instead it is compared to the element column on each iteration
+        for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
+            for(int j=0;j<my_data->num_labels;j++){
+                if(my_data->y[i]==j+1) my_data->delta_3[i][j]=my_data->out[i][j]-1;
+                else my_data->delta_3[i][j]=my_data->out[i][j];
+            }
+        }
+
+        // delta_2 is competely computed in this for loop:
+        // delta_3 and Theta2 multiplication, and 1st column is "removed"
+        for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
+            for(int j=1;j<my_data->hidden_layer_size+1;j++){
+                for(int k=0;k<my_data->num_labels;k++){
+                    my_data->delta_2[i][j-1]=my_data->delta_3[i][k]**my_data->Theta2[k][j]
+                        +my_data->delta_2[i][j-1];
+                }
+                my_data->delta_2[i][j-1]=my_data->delta_2[i][j-1]
+                    *(my_data->activ[i][j]*(1-my_data->activ[i][j]));
+            }
+        }
+
+        pthread_mutex_lock (my_data->mutex);
+        *my_data->reg_term=*my_data->reg_term+my_reg_term;
+        *my_data->J=*my_data->J+my_J;
+        pthread_mutex_unlock (my_data->mutex);
+
+        // Theta1_grad and Theta2_grad without regularization
+        // For each smaple the ThetaX_grad element is computed and accumulated
+        // In the last itteration (k=m-1) each elemnt is divided by m
+        for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
+            for(int l=0;l<my_data->m;l++){
+                if((k%(my_data->input_layer_size+1))!=0){
+                    my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]=
+                        my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]+
+                        my_data->delta_2[l][k/(my_data->input_layer_size+1)]*
+                        *((my_data->X+l*(my_data->input_layer_size))+(k%(my_data->input_layer_size+1))-1);
+                    if(l==my_data->m-1)
+                        my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]=
+                            my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]/
+                            my_data->m;
+                }
+                else{
+                    my_data->Theta1_grad[k/(my_data->input_layer_size+1)][0]=
+                        my_data->Theta1_grad[k/(my_data->input_layer_size+1)][0]+
+                        my_data->delta_2[l][k/(my_data->input_layer_size+1)];
+                    if(l==my_data->m-1)
+                        my_data->Theta1_grad[k/(my_data->input_layer_size+1)][0]=
+                            my_data->Theta1_grad[k/(my_data->input_layer_size+1)][0]/my_data->m;
+                }
+            }
+        }
+
+        for(int k=(my_data->id)*(my_data->div2);k<my_end2;k++){
+            for(int l=0;l<my_data->m;l++){
+                my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]
+                    =my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]
+                    +my_data->delta_3[l][k/(my_data->hidden_layer_size+1)]*
+                    my_data->activ[l][(k%(my_data->hidden_layer_size+1))];
+                if(l==my_data->m-1)
+                    my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]
+                    =my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]/
+                    my_data->m;
+            }
+        }
+
+        //------------------------------------ Part 3 ------------------------------------
+
+        // ThetaX_grad regularization
+        // Though ThetaX first column was not set to 0 previusly,
+        // it s take in accont in the computation
+
+        for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
+            if((k%(my_data->input_layer_size+1))!=0)
+                my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]=
+                    my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]+
+                    (my_data->lambda/my_data->m)*
+                    *my_data->Theta1[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))];
+        }
+
+        for(int k=(my_data->id)*(my_data->div2);k<my_end2;k++){
+            if((k%(my_data->hidden_layer_size+1))!=0)
+                my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]
+                    =my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]+
+                    (my_data->lambda/my_data->m)*
+                    *my_data->Theta2[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))];
+        }
+
+        // Unrolling gradients
+        // It is done for Theta1 and Theta2 induvidually
+
+        for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
+            my_data->grad[k/(my_data->input_layer_size+1)+((k%(my_data->input_layer_size+1))*my_data->hidden_layer_size)]
+            =my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))];
+        }
+
+        for(int k=(my_data->id)*(my_data->div2);k<my_end2;k++){
+            my_data->grad[k/(my_data->hidden_layer_size+1)+((k%(my_data->hidden_layer_size+1))*my_data->num_labels)
+            +(my_data->hidden_layer_size*(my_data->input_layer_size+1))]
+            =my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))];
+        }
+
+        pthread_exit((void*) 0);
+
+};
+
+// It was needed to add the number of samples (m) inside the argument list
+// It is possible to find m using sizeof(y)/sizeof(y[0]) in the main function
+float nnCostFunction(float* &grad, float* nn_params,
+    int input_layer_size, int hidden_layer_size, int num_labels,
+    float* X, float* y, float lambda, int m,int threadMax)
+    {
+        //------------------------------------ Part 0 ------------------------------------
+
+        float*** Theta1=new float**[hidden_layer_size]; //Allocating a pointer to Theta1 values
+        for(int i=0;i<hidden_layer_size;i++) Theta1[i]=new float*[input_layer_size+1];
+
+        float*** Theta2=new float**[num_labels]; //Allocating a pointer to Theta2 values
+        for(int i=0;i<num_labels;i++) Theta2[i]=new float*[hidden_layer_size+1];
+
+        // Theta1 pointer matrix will point to nn_params elements that correspond to Theta1
+        // No copy is needed
+        for(int j=0;j<input_layer_size+1;j++){
+            for(int i=0;i<hidden_layer_size;i++){
+                    Theta1[i][j]=&nn_params[i+(j*hidden_layer_size)];
+            }
+        }
+
+        // Theta2 pointer matrix will point to nn_params elements that correspond to Theta2
+        // No copy is needed
+        for(int j=0;j<hidden_layer_size+1;j++){
+            for(int i=0;i<num_labels;i++){
+                    Theta2[i][j]=&nn_params[i+(j*num_labels)+(hidden_layer_size*(input_layer_size+1))];
+            }
+        }
+
+        float J=0;
+
+        // Allocating Theta1_grad and initializing with zeros
+        float** Theta1_grad=new float*[hidden_layer_size];
+        for(int i=0;i<hidden_layer_size;i++){
+                Theta1_grad[i]=new float[input_layer_size+1];
+                for(int j=0;j<input_layer_size+1;j++){
+                    Theta1_grad[i][j]=0;
+                }
+        }
+
+        // Allocating Theta1_grad and initializing with zeros
+        float** Theta2_grad=new float*[num_labels];
+        for(int i=0;i<num_labels;i++){
+            Theta2_grad[i]=new float[hidden_layer_size+1];
+            for(int j=0;j<hidden_layer_size+1;j++){
+                    Theta2_grad[i][j]=0;
+                }
+        }
+
+
+        float** activ=new float*[m];
+        for(int i=0;i<m;i++) activ[i]=new float[hidden_layer_size+1];
+
+        float** out=new float*[m];
+        for(int i=0;i<m;i++) out[i]=new float[num_labels];
+
+        float reg_term=0;
+
+        float** delta_2=new float*[m];
+        for(int i=0;i<m;i++){
+            delta_2[i]=new float[hidden_layer_size];
+            for(int j=0;j<hidden_layer_size;j++){
+                    delta_2[i][j]=0;
+                }
+        }
+
+        float** delta_3=new float*[m];
+        for(int i=0;i<m;i++){
+            delta_3[i]=new float[num_labels];
+            for(int j=0;j<num_labels;j++){
+                    delta_3[i][j]=0;
+                }
+        }
+
+        grad=new float[(hidden_layer_size*(input_layer_size+1))+(num_labels*(hidden_layer_size+1))];
+
+        int threadNum;
+        if(threadMax<1) threadNum=1;
+        else if(threadMax>m) threadNum=m;
+        else threadNum=threadMax;
+        int div0=m/threadNum;
+        int div1,div2;
+        if(threadNum>hidden_layer_size*(input_layer_size+1)) div1=1;
+        else div1=hidden_layer_size*(input_layer_size+1)/threadNum;
+        if(threadNum>num_labels*(hidden_layer_size+1)) div2=1;
+        else div2=num_labels*(hidden_layer_size+1)/threadNum;
+
+        pthread_attr_t attr;
+        pthread_t thread[threadMax];
+        pthread_mutex_t mutex;
+
+        pthread_mutex_init(&mutex, NULL);
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+        struct NNcost_thread_data thread_data[threadMax];
+
+        for(int t=0;t<threadMax;t++){
+            thread_data[t].id=t;
+            thread_data[t].input_layer_size=input_layer_size;
+            thread_data[t].hidden_layer_size=hidden_layer_size;
+            thread_data[t].num_labels=num_labels;
+            thread_data[t].m=m;
+            thread_data[t].lambda=lambda;
+            thread_data[t].y=y;
+            thread_data[t].X=X;
+            thread_data[t].grad=grad;
+            thread_data[t].Theta1=Theta1;
+            thread_data[t].Theta2=Theta2;
+            thread_data[t].Theta1_grad=Theta1_grad;
+            thread_data[t].Theta2_grad=Theta2_grad;
+            thread_data[t].activ=activ;
+            thread_data[t].out=out;
+            thread_data[t].delta_2=delta_2;
+            thread_data[t].delta_3=delta_3;
+            thread_data[t].J=&J;
+            thread_data[t].reg_term=&reg_term;
+            thread_data[t].threadNum=threadNum;
+            thread_data[t].div0=div0;
+            thread_data[t].div1=div1;
+            thread_data[t].div2=div2;
+            thread_data[t].mutex=&mutex;
+        }
+
+        int rc;
+        for(int t=0; t<threadMax; t++) {
+        cout<<"Main: creating thread "<<t<<'\n';
+        rc = pthread_create(&thread[t], &attr, nnCostThread, (void *)&thread_data[t]);
+        if (rc) {
+            cout<<"ERROR; return code from pthread_create() is "<<rc<<'\n';
+            exit(-1);
+            }
+        }
+
+        pthread_attr_destroy(&attr);
+
+        for(int t=0; t<threadNum; t++) {
+            rc = pthread_join(thread[t], NULL);
+            if (rc) {
+            cout<<"ERROR; return code from pthread_join() is "<<rc<<'\n';
+            exit(-1);
+            }
+        }
+
+        pthread_mutex_destroy(&mutex);
+
+        return J;
+    }
