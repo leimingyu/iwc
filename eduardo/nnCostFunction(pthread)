@@ -367,8 +367,6 @@ float nnCostFunction(float* &grad, float* nn_params,
             }
         }
 
-        pthread_attr_destroy(&attr);
-
         for(int t=0; t<threadNum; t++) {
             rc = pthread_join(thread[t], NULL);
             if (rc) {
@@ -376,8 +374,10 @@ float nnCostFunction(float* &grad, float* nn_params,
             exit(-1);
             }
         }
-
+        
+        pthread_attr_destroy(&attr);
         pthread_mutex_destroy(&mutex);
+        
 
         return J;
     }
