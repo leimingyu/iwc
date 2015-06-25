@@ -96,8 +96,6 @@ void *nnCostThread(void *thread_data)
 
         my_J=my_J/my_data->m;
 
-        cout<<"J: "<<my_J<<'\n';
-
         // reg_term is computed for each Theta separately and accumulated
 
         for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
@@ -115,9 +113,6 @@ void *nnCostThread(void *thread_data)
         }
 
         my_reg_term=(my_data->lambda/(2*my_data->m))*my_reg_term;
-
-        cout<<"reg_term: "<<my_reg_term<<'\n';
-
         my_J=my_J+my_reg_term;
 
         //------------------------------------ Part 2 ------------------------------------
@@ -359,7 +354,6 @@ float nnCostFunction(float* &grad, float* nn_params,
 
         int rc;
         for(int t=0; t<threadMax; t++) {
-        cout<<"Main: creating thread "<<t<<'\n';
         rc = pthread_create(&thread[t], &attr, nnCostThread, (void *)&thread_data[t]);
         if (rc) {
             cout<<"ERROR; return code from pthread_create() is "<<rc<<'\n';
@@ -374,10 +368,11 @@ float nnCostFunction(float* &grad, float* nn_params,
             exit(-1);
             }
         }
-        
+
         pthread_attr_destroy(&attr);
         pthread_mutex_destroy(&mutex);
-        
+        pthread_barrier_destroy(&barrier);
 
         return J;
     }
+
