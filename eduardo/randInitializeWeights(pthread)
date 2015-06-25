@@ -1,0 +1,105 @@
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <pthread.h>
+#include <fstream>
+
+using namespace std;
+
+struct thread_data{
+    int threads;
+    int id;
+    int columns;
+    int rows;
+    int div;
+    float epsilon;
+    float **w;
+};
+
+ void *randNum(void *data)
+ {
+
+    /* Input data assigned to a struct owned by the thread */
+    struct thread_data *my_data;
+    my_data=(struct thread_data *) data;
+
+    int my_end;
+    if((my_data->id)!=(my_data->threads-1)) my_end=((my_data->id+1)*(my_data->div));
+    else my_end=(my_data->columns*my_data->rows);
+
+    for(int k=(my_data->id)*(my_data->div);k<my_end;k++){
+        // Random number between -epsilon and epsilon
+        (my_data->w)[k/(my_data->columns)][k%(my_data->columns)]=
+                (2.0*((static_cast<float>(rand()))/RAND_MAX)*my_data->epsilon)-my_data->epsilon;
+    }
+
+    pthread_exit(NULL);
+ }
+
+
+void randInitializeWeights(float** &W,int L_in, int L_out,int threadMax)
+{
+
+    int threadNum;
+    float epsilon_init=0.12;
+
+    /* initialize random seed
+    (is it better inside main or inside randInitializeWeights?) */
+    srand (time(NULL));
+
+    W=new float*[L_out]; // Dynamically allocating rows in matrix W
+    for(int i=0;i<L_out;i++){
+        W[i]=new float[L_in+1]; // Dynamically allocating columns in matrix W
+        }
+
+    /* There is no sense in creating more threads than elements.
+    * Here the number of threads is limited by the number of elements.
+    * Also, there is no sense in set 0 threads. */
+
+    if(threadMax>L_out*(L_in+1)) threadNum=L_out*(L_in+1);
+    else threadNum=threadMax;
+    if(threadNum<1){
+        printf("ERROR; number of threads cannot be less than 1");
+        exit(-1);
+    }
+
+    int division=0;
+    if(threadNum>=1) division=L_out*(L_in+1)/(threadNum); // Number of elements per thread
+
+    pthread_t thread[threadNum];
+    pthread_attr_t attr;
+    int rc;
+
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+
+    struct thread_data data[threadNum]; //Data assignment to thread data struct
+    for(int t=0; t<threadNum; t++){
+        data[t].threads=threadNum;
+        data[t].id=t;
+        data[t].columns=(L_in+1);
+        data[t].rows=L_out;
+        data[t].div=division;
+        data[t].epsilon=epsilon_init;
+        data[t].w=W;
+    }
+
+    for(int t=0; t<threadNum; t++) {
+      rc = pthread_create(&thread[t], &attr, randNum, (void *)&data[t]);
+      if (rc) {
+         printf("ERROR; return code from pthread_create()is %d\n", rc);
+         exit(-1);
+        }
+    }
+
+    for(int t=0; t<threadNum; t++) {
+      rc = pthread_join(thread[t], NULL);
+      if (rc) {
+         printf("ERROR; return code from pthread_join()is %d\n", rc);
+         exit(-1);
+         }
+      }
+
+    pthread_attr_destroy(&attr);
+}
