@@ -7,7 +7,7 @@
 
 using namespace std;
 
-struct thread_data{
+struct randInit_thread_data{
     int threads;
     int id;
     int columns;
@@ -21,8 +21,8 @@ struct thread_data{
  {
 
     /* Input data assigned to a struct owned by the thread */
-    struct thread_data *my_data;
-    my_data=(struct thread_data *) data;
+    struct randInit_thread_data *my_data;
+    my_data=(struct randInit_thread_data *) data;
 
     int my_end;
     if((my_data->id)!=(my_data->threads-1)) my_end=((my_data->id+1)*(my_data->div));
@@ -74,7 +74,7 @@ void randInitializeWeights(float** &W,int L_in, int L_out,int threadMax)
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-    struct thread_data data[threadNum]; //Data assignment to thread data struct
+    struct randInit_thread_data data[threadNum]; //Data assignment to thread data struct
     for(int t=0; t<threadNum; t++){
         data[t].threads=threadNum;
         data[t].id=t;
