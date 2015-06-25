@@ -31,6 +31,7 @@ struct NNcost_thread_data{
     int div1;
     int div2;
     pthread_mutex_t* mutex;
+    pthread_barrier_t* barrier;
 };
 
 void *nnCostThread(void *thread_data)
@@ -45,13 +46,13 @@ void *nnCostThread(void *thread_data)
     else my_end0=((my_data->id+1)*(my_data->div0));
 
     float my_end1;
-    if((my_data->id+1)*my_data->div1>(my_data->hidden_layer_size*my_data->input_layer_size))
+    if(((my_data->id+1)*my_data->div1>(my_data->hidden_layer_size*(my_data->input_layer_size+1))) || (my_data->id==my_data->threadNum-1))
         my_end1=(my_data->hidden_layer_size*(my_data->input_layer_size+1));
     else my_end1=((my_data->id+1)*(my_data->div1));
 
     float my_end2;
-    if((my_data->id+1)*my_data->div2>((my_data->hidden_layer_size+1)*my_data->num_labels))
-        my_end2=(my_data->hidden_layer_size*my_data->num_labels);
+    if((my_data->id+1)*my_data->div2>((my_data->hidden_layer_size+1)*my_data->num_labels)  || (my_data->id==my_data->threadNum-1))
+        my_end2=((my_data->hidden_layer_size+1)*my_data->num_labels);
     else my_end2=((my_data->id+1)*(my_data->div2));
 
     //------------------------------------ Part 1 ------------------------------------
@@ -95,7 +96,9 @@ void *nnCostThread(void *thread_data)
 
         my_J=my_J/my_data->m;
 
-        // reg_term is computed for each Theta separately and accomulated
+        cout<<"J: "<<my_J<<'\n';
+
+        // reg_term is computed for each Theta separately and accumulated
 
         for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
             if((k%(my_data->input_layer_size+1))!=0)
@@ -112,11 +115,14 @@ void *nnCostThread(void *thread_data)
         }
 
         my_reg_term=(my_data->lambda/(2*my_data->m))*my_reg_term;
+
+        cout<<"reg_term: "<<my_reg_term<<'\n';
+
         my_J=my_J+my_reg_term;
 
         //------------------------------------ Part 2 ------------------------------------
 
-        // y is not reformated,
+        // y is not reformatted,
         // instead it is compared to the element column on each iteration
         for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
             for(int j=0;j<my_data->num_labels;j++){
@@ -125,7 +131,7 @@ void *nnCostThread(void *thread_data)
             }
         }
 
-        // delta_2 is competely computed in this for loop:
+        // delta_2 is completely computed in this for loop:
         // delta_3 and Theta2 multiplication, and 1st column is "removed"
         for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
             for(int j=1;j<my_data->hidden_layer_size+1;j++){
@@ -143,9 +149,11 @@ void *nnCostThread(void *thread_data)
         *my_data->J=*my_data->J+my_J;
         pthread_mutex_unlock (my_data->mutex);
 
+        pthread_barrier_wait (my_data->barrier);
+
         // Theta1_grad and Theta2_grad without regularization
-        // For each smaple the ThetaX_grad element is computed and accumulated
-        // In the last itteration (k=m-1) each elemnt is divided by m
+        // For each sample the ThetaX_grad element is computed and accumulated
+        // In the last iteration (k=m-1) each element is divided by m
         for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
             for(int l=0;l<my_data->m;l++){
                 if((k%(my_data->input_layer_size+1))!=0){
@@ -205,7 +213,7 @@ void *nnCostThread(void *thread_data)
         }
 
         // Unrolling gradients
-        // It is done for Theta1 and Theta2 induvidually
+        // It is done for Theta1 and Theta2 individually
 
         for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
             my_data->grad[k/(my_data->input_layer_size+1)+((k%(my_data->input_layer_size+1))*my_data->hidden_layer_size)]
@@ -313,9 +321,11 @@ float nnCostFunction(float* &grad, float* nn_params,
         pthread_attr_t attr;
         pthread_t thread[threadMax];
         pthread_mutex_t mutex;
+        pthread_barrier_t   barrier;
 
         pthread_mutex_init(&mutex, NULL);
         pthread_attr_init(&attr);
+        pthread_barrier_init (&barrier, NULL, threadNum);
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
         struct NNcost_thread_data thread_data[threadMax];
 
@@ -344,6 +354,7 @@ float nnCostFunction(float* &grad, float* nn_params,
             thread_data[t].div1=div1;
             thread_data[t].div2=div2;
             thread_data[t].mutex=&mutex;
+            thread_data[t].barrier=&barrier;
         }
 
         int rc;
