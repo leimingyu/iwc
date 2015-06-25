@@ -1,0 +1,25 @@
+#include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+using namespace std;
+
+void randInitializeWeights(float** &W,int L_in, int L_out)
+{
+    /* initialize random seed
+    (is it better inside main or inside randInitializeWeights?) */
+    srand(time(NULL));
+
+    float epsilon_init=0.12;
+
+    W=new float*[L_out]; // Dynamically allocating rows in matrix W
+    for(int i=0;i<L_out;i++){
+        W[i]=new float[L_in+1]; // Dynamically allocating columns in matrix W
+        for(int j=0;j<L_in+1;j++){
+            // Random number between -epsilon and epsilon;
+            W[i][j]=
+                (2.0*((static_cast<float>(rand()))/RAND_MAX)*epsilon_init)-epsilon_init;
+        }
+    }
+}
