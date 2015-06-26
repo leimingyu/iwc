@@ -1,10 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <iostream>
 #include <math.h>
 #include <pthread.h>
 
 using namespace std;
+
+struct timespec starttime, endtime, ttime;
+double timeinterval;
 
 struct NNcost_thread_data{
     int id;
@@ -16,8 +16,8 @@ struct NNcost_thread_data{
     float *y;
     float *X;
     float *grad;
-    float ***Theta1;
-    float ***Theta2;
+    float *Theta1;
+    float *Theta2;
     float **Theta1_grad;
     float **Theta2_grad;
     float **activ;
@@ -37,7 +37,8 @@ struct NNcost_thread_data{
 void *nnCostThread(void *thread_data)
 {
     struct NNcost_thread_data *my_data;
-    my_data=(struct NNcost_thread_data *) thread_data;
+    my_data=static_cast<struct NNcost_thread_data *> (thread_data);
+
     float my_J=0;
     float my_reg_term=0;
 
@@ -45,15 +46,16 @@ void *nnCostThread(void *thread_data)
     if(my_data->id==my_data->threadNum-1) my_end0=my_data->m;
     else my_end0=((my_data->id+1)*(my_data->div0));
 
-    float my_end1;
+    int my_end1;
     if(((my_data->id+1)*my_data->div1>(my_data->hidden_layer_size*(my_data->input_layer_size+1))) || (my_data->id==my_data->threadNum-1))
         my_end1=(my_data->hidden_layer_size*(my_data->input_layer_size+1));
     else my_end1=((my_data->id+1)*(my_data->div1));
 
-    float my_end2;
+    int my_end2;
     if((my_data->id+1)*my_data->div2>((my_data->hidden_layer_size+1)*my_data->num_labels)  || (my_data->id==my_data->threadNum-1))
         my_end2=((my_data->hidden_layer_size+1)*my_data->num_labels);
     else my_end2=((my_data->id+1)*(my_data->div2));
+
 
     //------------------------------------ Part 1 ------------------------------------
 
@@ -62,10 +64,10 @@ void *nnCostThread(void *thread_data)
             for(int j=1;j<my_data->hidden_layer_size+1;j++){
                 // The X's 1s columns is not physically added to X,
                 // but is is take in accont on the overall computation
-                my_data->activ[i][j]=*my_data->Theta1[j-1][0];
+                my_data->activ[i][j]=*(my_data->Theta1+(j-1));
                 for(int k=1;k<my_data->input_layer_size+1;k++){
                     my_data->activ[i][j]=
-                        *(((my_data->X)+i*my_data->input_layer_size)+k-1)**my_data->Theta1[j-1][k]
+                        *(((my_data->X)+i*my_data->input_layer_size)+k-1)**(my_data->Theta1+(j-1)+(k*my_data->hidden_layer_size))
                         +my_data->activ[i][j];
                 }
                 //sigmoid after each multiplication
@@ -77,15 +79,15 @@ void *nnCostThread(void *thread_data)
 
         for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
             for(int j=0;j<my_data->num_labels;j++){
-                my_data->out[i][j]=*my_data->Theta2[j][0];
+                my_data->out[i][j]=*(my_data->Theta2+j);
                 for(int k=1;k<my_data->hidden_layer_size+1;k++){
-                    my_data->out[i][j]=my_data->activ[i][k]**my_data->Theta2[j][k]+my_data->out[i][j];
+                    my_data->out[i][j]=my_data->activ[i][k]**(my_data->Theta2+j+k*my_data->num_labels)+my_data->out[i][j];
                 }
                 my_data->out[i][j]=1.0/(1.0+exp(-my_data->out[i][j]));
             }
         }
 
-        // y is not reformated,
+        // y is not reformatted,
         // instead it is compared to the element column on each iteration
         for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
             for(int j=0;j<my_data->num_labels;j++){
@@ -101,21 +103,23 @@ void *nnCostThread(void *thread_data)
         for(int k=(my_data->id)*(my_data->div1);k<my_end1;k++){
             if((k%(my_data->input_layer_size+1))!=0)
                 my_reg_term=
-                    pow(*my_data->Theta1[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))],2.0)
+                    pow(*(my_data->Theta1+(k/(my_data->input_layer_size+1))+((k%(my_data->input_layer_size+1)))*(my_data->hidden_layer_size)),2.0)
                     +my_reg_term;
         }
 
         for(int k=(my_data->id)*(my_data->div2);k<my_end2;k++){
             if((k%(my_data->hidden_layer_size+1))!=0)
             my_reg_term=
-                pow(*my_data->Theta2[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))],2.0)
+                pow(*(my_data->Theta2+(k/(my_data->hidden_layer_size+1))+(k%(my_data->hidden_layer_size+1))*(my_data->num_labels)),2.0)
                 +my_reg_term;
         }
 
         my_reg_term=(my_data->lambda/(2*my_data->m))*my_reg_term;
         my_J=my_J+my_reg_term;
 
+
         //------------------------------------ Part 2 ------------------------------------
+
 
         // y is not reformatted,
         // instead it is compared to the element column on each iteration
@@ -131,7 +135,7 @@ void *nnCostThread(void *thread_data)
         for(int i=(my_data->id)*(my_data->div0);i<my_end0;i++){
             for(int j=1;j<my_data->hidden_layer_size+1;j++){
                 for(int k=0;k<my_data->num_labels;k++){
-                    my_data->delta_2[i][j-1]=my_data->delta_3[i][k]**my_data->Theta2[k][j]
+                    my_data->delta_2[i][j-1]=my_data->delta_3[i][k]**(my_data->Theta2+k+j*my_data->num_labels)
                         +my_data->delta_2[i][j-1];
                 }
                 my_data->delta_2[i][j-1]=my_data->delta_2[i][j-1]
@@ -185,7 +189,9 @@ void *nnCostThread(void *thread_data)
             }
         }
 
+
         //------------------------------------ Part 3 ------------------------------------
+
 
         // ThetaX_grad regularization
         // Though ThetaX first column was not set to 0 previusly,
@@ -196,7 +202,7 @@ void *nnCostThread(void *thread_data)
                 my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]=
                     my_data->Theta1_grad[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))]+
                     (my_data->lambda/my_data->m)*
-                    *my_data->Theta1[k/(my_data->input_layer_size+1)][(k%(my_data->input_layer_size+1))];
+                    *(my_data->Theta1+(k/(my_data->input_layer_size+1))+((k%(my_data->input_layer_size+1)))*(my_data->hidden_layer_size));
         }
 
         for(int k=(my_data->id)*(my_data->div2);k<my_end2;k++){
@@ -204,7 +210,7 @@ void *nnCostThread(void *thread_data)
                 my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]
                     =my_data->Theta2_grad[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))]+
                     (my_data->lambda/my_data->m)*
-                    *my_data->Theta2[k/(my_data->hidden_layer_size+1)][(k%(my_data->hidden_layer_size+1))];
+                    *(my_data->Theta2+k/(my_data->hidden_layer_size+1)+(k%(my_data->hidden_layer_size+1))*my_data->num_labels);
         }
 
         // Unrolling gradients
@@ -231,29 +237,9 @@ float nnCostFunction(float* &grad, float* nn_params,
     int input_layer_size, int hidden_layer_size, int num_labels,
     float* X, float* y, float lambda, int m,int threadMax)
     {
-        //------------------------------------ Part 0 ------------------------------------
 
-        float*** Theta1=new float**[hidden_layer_size]; //Allocating a pointer to Theta1 values
-        for(int i=0;i<hidden_layer_size;i++) Theta1[i]=new float*[input_layer_size+1];
-
-        float*** Theta2=new float**[num_labels]; //Allocating a pointer to Theta2 values
-        for(int i=0;i<num_labels;i++) Theta2[i]=new float*[hidden_layer_size+1];
-
-        // Theta1 pointer matrix will point to nn_params elements that correspond to Theta1
-        // No copy is needed
-        for(int j=0;j<input_layer_size+1;j++){
-            for(int i=0;i<hidden_layer_size;i++){
-                    Theta1[i][j]=&nn_params[i+(j*hidden_layer_size)];
-            }
-        }
-
-        // Theta2 pointer matrix will point to nn_params elements that correspond to Theta2
-        // No copy is needed
-        for(int j=0;j<hidden_layer_size+1;j++){
-            for(int i=0;i<num_labels;i++){
-                    Theta2[i][j]=&nn_params[i+(j*num_labels)+(hidden_layer_size*(input_layer_size+1))];
-            }
-        }
+        float* Theta1=&nn_params[0];
+        float* Theta2=&nn_params[(hidden_layer_size*(input_layer_size+1))];
 
         float J=0;
 
@@ -314,7 +300,7 @@ float nnCostFunction(float* &grad, float* nn_params,
         else div2=num_labels*(hidden_layer_size+1)/threadNum;
 
         pthread_attr_t attr;
-        pthread_t thread[threadMax];
+        pthread_t thread[threadNum];
         pthread_mutex_t mutex;
         pthread_barrier_t   barrier;
 
@@ -322,9 +308,9 @@ float nnCostFunction(float* &grad, float* nn_params,
         pthread_attr_init(&attr);
         pthread_barrier_init (&barrier, NULL, threadNum);
         pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-        struct NNcost_thread_data thread_data[threadMax];
+        struct NNcost_thread_data thread_data[threadNum];
 
-        for(int t=0;t<threadMax;t++){
+        for(int t=0;t<threadNum;t++){
             thread_data[t].id=t;
             thread_data[t].input_layer_size=input_layer_size;
             thread_data[t].hidden_layer_size=hidden_layer_size;
@@ -353,7 +339,7 @@ float nnCostFunction(float* &grad, float* nn_params,
         }
 
         int rc;
-        for(int t=0; t<threadMax; t++) {
+        for(int t=0; t<threadNum; t++) {
         rc = pthread_create(&thread[t], &attr, nnCostThread, (void *)&thread_data[t]);
         if (rc) {
             cout<<"ERROR; return code from pthread_create() is "<<rc<<'\n';
@@ -375,4 +361,3 @@ float nnCostFunction(float* &grad, float* nn_params,
 
         return J;
     }
-
