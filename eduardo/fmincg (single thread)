@@ -1,0 +1,235 @@
+#include <math.h>
+#include <algorithm>
+#include <limits>
+#include <vector>
+
+using namespace std;
+
+class nnCost{
+public:
+    int input_layer_size;
+    int hidden_layer_size;
+    int num_labels;
+    float* X;
+    float* y;
+    float lambda;
+    int m;
+    float(*nnCostFunc)(float*, float*, int , int , int , float* , float* , float , int );
+    float nnCostCall(float* x1, float* x2)
+        {return (*nnCostFunc)(x1, x2, input_layer_size, hidden_layer_size, num_labels, X, y, lambda, m);}
+};
+
+/* Function returns the number of iterations and uses as argument: 
+* a nnCost pointer(brings all the data for cost function calling), 
+* a pointer to the initial theta parameters 
+* (the function will write the parameters directly on this argument), 
+* the maximum iteration number,
+* and a "output" cost vector. 
+* Obs.:The possibility of a second component in length was not implemented. */
+int fmincg(class nnCost* nnData, float* X, int MaxIter, vector<float>& fX)
+{
+    int length;
+    if(MaxIter!=0) length=MaxIter;
+    else length=100;
+
+    float RHO = 0.01;
+    float SIG = 0.5;
+    float INT = 0.1;
+    float EXT = 3.0;
+    int MAX = 20;
+    float RATIO = 100;
+
+    int i=0;
+    int ls_failed=0;
+
+    int gradLength=(nnData->hidden_layer_size*(nnData->input_layer_size+1))+
+        (nnData->num_labels*(nnData->hidden_layer_size+1));
+
+    float* X0=new float[gradLength];
+
+    float f0;
+    float f1;
+    float f2;
+    float f3;
+
+    fX.clear();
+
+    float d1=0;
+    float d2=0;
+    float d3=0;
+
+    float* df0=new float[gradLength];
+    float* df1=new float[gradLength];
+    float* df2=new float[gradLength];
+
+    float* s=new float[gradLength];
+
+    float z1;
+    float z2;
+    float z3;
+
+    int M;
+    int success;
+    int limit;
+
+    float A;
+    float B;
+
+    float num;
+    float den;
+
+    float* tmp=new float[gradLength];
+
+    //-----------------------------------------------------------------------------------------------------
+
+    f1=nnData->nnCostCall(df1, X); // Cost function calling by nnCost class.
+
+    i=i+(length<0);
+
+    for(int k=0;k<gradLength;k++) s[k]=-df1[k];
+
+    d1=0;
+    for(int k=0;k<gradLength;k++) d1=-s[k]*s[k]+d1;
+
+    z1=1/(1-d1);
+
+    while(i<abs(length)){
+        i=i+(length>0);
+
+        f0=f1;
+        for(int k=0;k<gradLength;k++){
+            X0[k]=X[k];
+            df0[k]=df1[k];
+            X[k]=X[k]+z1*s[k];
+        }
+
+        f2=nnData->nnCostCall(df2, X);
+
+
+        i=i+(length<0);
+        d2=0;
+        for(int k=0;k<gradLength;k++) d2=df2[k]*s[k]+d2;
+
+        f3=f1;
+        d3=d1;
+        z3=-z1;
+
+        if(length>0) M=MAX;
+        else  M = min(MAX, -length-i);
+
+        success=0;
+        limit=-1;
+
+        while(1){
+            while(((f2 > f1+z1*RHO*d1) | (d2 > -SIG*d1)) & (M > 0)){
+                limit = z1;
+                if (f2 > f1) z2 = z3 - (0.5*d3*z3*z3)/(d3*z3+f2-f3);
+                else{
+                    A = 6*(f2-f3)/z3+3*(d2+d3);
+                    B = 3*(f3-f2)-z3*(d3+2*d2);
+                    z2 = (sqrt(B*B-A*d2*z3*z3)-B)/A;
+                }
+                if((isnan(z2)) | (isinf(z2))) z2 = z3/2;
+
+                z2 = max(min(z2, INT*z3),(1-INT)*z3);
+                z1 = z1 + z2;
+                for(int k=0;k<gradLength;k++) X[k]=X[k]+z2*s[k];
+
+                f2=nnData->nnCostCall(df2, X);
+
+                M=M-1;
+                i = i + (length<0);
+                d2=0;
+                for(int k=0;k<gradLength;k++) d2=df2[k]*s[k]+d2;
+                z3=z3-z2;
+
+            }
+
+        if ((f2 > f1+z1*RHO*d1) | (d2 > -SIG*d1)) break;
+        else if (d2 > SIG*d1){
+            success = 1;
+            break;
+        }
+        else if( M == 0) break;
+
+        A = 6*(f2-f3)/z3+3*(d2+d3);
+        B = 3*(f3-f2)-z3*(d3+2*d2);
+        z2 = -d2*z3*z3/(B+sqrt(B*B-A*d2*z3*z3));
+
+        if(((B*B-A*d2*z3*z3)<0) | (isnan(z2)) | (isinf(z2)) | (z2<0)){
+            if(limit<-0.5) z2 = z1 * (EXT-1);
+            else z2 = (limit-z1)/2;
+        }
+        else if((limit > -0.5) & (z2+z1 > limit)) z2 = (limit-z1)/2;
+        else if((limit < -0.5) & (z2+z1 > z1*EXT)) z2 = z1*(EXT-1.0);
+        else if(z2 < -z3*INT) z2 = -z3*INT;
+        else if((limit > -0.5) & (z2 < (limit-z1)*(1.0-INT))) z2 = (limit-z1)*(1.0-INT);
+
+        f3 = f2;
+        d3 = d2;
+        z3 = -z2;
+        z1 = z1 + z2;
+        for(int k=0;k<gradLength;k++) X[k]=X[k]+z2*s[k];
+
+        f2=nnData->nnCostCall(df2, X);
+
+        M = M - 1;
+        i = i + (length<0);
+        d2=0;
+        for(int k=0;k<gradLength;k++) d2=df2[k]*s[k]+d2;
+
+        }
+
+        if(success){
+            f1=f2;
+            fX.push_back(f1);
+
+            num=0;
+            den=0;
+            for(int k=0;k<gradLength;k++){
+                num=df2[k]*df2[k]-df1[k]*df2[k]+num;
+                den=df1[k]*df1[k]+den;
+            }
+
+            d2=0;
+            for(int k=0;k<gradLength;k++){
+                s[k]=(num)/(den)*s[k]-df2[k];
+                df1[k]=df2[k];
+                d2=df1[k]*s[k]+d2;
+            }
+
+            if(d2>0){
+                d2=0;
+                for(int k=0;k<gradLength;k++){
+                    s[k]=-df1[k];
+                    d2=-s[k]*s[k]+d2;
+                }
+            }
+
+            z1 = z1 * min(RATIO, d1/(d2-numeric_limits<float>::min()));
+            d1=d2;
+            ls_failed = 0;
+        }
+        else{
+            f1=f0;
+            for(int k=0;k<gradLength;k++){
+                X[k]=X0[k];
+                df1[k]=df0[k];
+            }
+
+            if((ls_failed==1) | (i>abs(length))) break;
+
+            d1=0;
+            for(int k=0;k<gradLength;k++){
+                df1[k]=df2[k];
+                s[k]=-df1[k];
+                d1=-s[k]*s[k]+d1;
+            }
+
+            z1=1/(1-d1);
+            ls_failed=1;
+        }
+    }
+
+    return i;
+}
