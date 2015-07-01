@@ -233,7 +233,7 @@ void *nnCostThread(void *thread_data)
 
 // It was needed to add the number of samples (m) inside the argument list
 // It is possible to find m using sizeof(y)/sizeof(y[0]) in the main function
-float nnCostFunction(float* &grad, float* nn_params,
+float nnCostFunction(float* grad, float* nn_params,
     int input_layer_size, int hidden_layer_size, int num_labels,
     float* X, float* y, float lambda, int m,int threadMax)
     {
@@ -285,8 +285,6 @@ float nnCostFunction(float* &grad, float* nn_params,
                     delta_3[i][j]=0;
                 }
         }
-
-        grad=new float[(hidden_layer_size*(input_layer_size+1))+(num_labels*(hidden_layer_size+1))];
 
         int threadNum;
         if(threadMax<1) threadNum=1;
