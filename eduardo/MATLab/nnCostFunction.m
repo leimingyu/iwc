@@ -1,5 +1,4 @@
-
-%----------------------------------------------------------------------
+  %----------------------------------------------------------------------
 %                       Multilayer Cost Function
 
 function [J grad] = nnCostFunction(nn_params, ...
@@ -25,22 +24,16 @@ function [J grad] = nnCostFunction(nn_params, ...
 
 Theta=cell(layer_num-1,1); % Creating a matrix cell array for each Theta
 
-% Initializing reshape range for Theta{1}
-params_from=1;
-params_to=(layer_size(2) * (layer_size(1) + 1));
+% Initializing reshape range
+params_to=0;
 
-% Reshape Theta{1} to Theta{layer_num-1}, the last Theta need to be
-% reshaped outside this for loop (problem in params_to assigment for n=layer_num-1)
-for n=1:(layer_num-2)
-    Theta{n}=reshape(nn_params(params_from : params_to), ...
-                 layer_size(n+1), (layer_size(n) + 1), 1);
+% Reshape Theta{1} to Theta{layer_num-1}
+for n=1:(layer_num-1)
     params_from=params_to+1;
-    params_to=params_to+(layer_size(n+2) * (layer_size(n+1) + 1));
+    params_to=params_to+(layer_size(n+1) * (layer_size(n) + 1));
+    Theta{n}=reshape(nn_params(params_from : params_to), ...
+                 layer_size(n+1), (layer_size(n) + 1));
 end
-
-% Last Theta reshape
-Theta{layer_num-1}=reshape(nn_params(params_from : end), ...
-                 layer_size(layer_num), (layer_size(layer_num-1) + 1), 1);
 
 % Setup some useful variables
 m = size(X, 1);
