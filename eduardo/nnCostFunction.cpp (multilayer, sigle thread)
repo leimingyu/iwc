@@ -4,7 +4,6 @@
 //  version and with previous single thread version. I can upload the
 //  test process if needed.
 
-#include <iostream>
 #include <math.h>
 
 using namespace std;
