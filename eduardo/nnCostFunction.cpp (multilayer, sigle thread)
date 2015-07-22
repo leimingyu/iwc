@@ -1,0 +1,186 @@
+//----------------- Multi-layer single-thread cost function ---------
+//
+//  I have to add comments, but it is working. I compared with MATlab
+//  version and with previous single thread version. I can upload the
+//  test process if needed.
+
+#include <iostream>
+#include <math.h>
+
+using namespace std;
+
+
+// It was needed to add the number of samples (m) inside the argument list
+// It is possible to find m using sizeof(y)/sizeof(y[0]) inside main function
+float nnCostFunction(float* &grad, float* nn_params,
+    int* layer_size, int layer_num,
+    float* X, float* y, float lambda, int m)
+    {
+        int theta_to=0;
+        int* theta_size=new int[layer_num-1];
+        float*** Theta=new float**[layer_num-1];
+        for(int n=0;n<layer_num-1;n++){
+            theta_size[n]=(layer_size[n+1]*(layer_size[n]+1));
+            Theta[n]=new float*[layer_size[n]+1];
+            for(int i=0;i<layer_size[n]+1;i++){
+                Theta[n][i]=&nn_params[i*(layer_size[n+1])+theta_to];
+            }
+            theta_to=theta_to+theta_size[n];
+        }
+
+        float J=0;
+
+        // Allocating Theta_grad and initializing with zeros
+        float*** Theta_grad=new float**[layer_num-1];
+        for(int n=0;n<layer_num-1;n++){
+            Theta_grad[n]=new float*[layer_size[n+1]];
+            for(int i=0;i<layer_size[n+1];i++){
+                Theta_grad[n][i]=new float[layer_size[n]+1];
+                for(int j=0;j<layer_size[n]+1;j++){
+                    Theta_grad[n][i][j]=0;
+                }
+            }
+        }
+
+        float*** activ=new float**[layer_num-1];
+        activ[0]=new float*[m];
+        for(int i=0;i<m;i++) activ[0][i]=&X[i*layer_size[0]];
+        for(int n=1;n<layer_num-1;n++){
+            activ[n]=new float*[m];
+            for(int i=0;i<m;i++){
+                activ[n][i]=new float[layer_size[n]];
+            }
+        }
+
+        float** out=new float*[m];
+        for(int i=0;i<m;i++) out[i]=new float[layer_size[layer_num-1]];
+
+        float reg_term=0;
+
+        float*** delta=new float**[layer_num-1];
+        for(int n=0;n<layer_num-1;n++){
+            delta[n]=new float*[m];
+            for(int i=0;i<m;i++){
+                delta[n][i]=new float[layer_size[n+1]];
+                for(int j=0;j<layer_size[n+1];j++){
+                    delta[n][i][j]=0;
+                }
+            }
+        }
+
+        grad=new float[theta_to];
+
+        //------------------------------------ Part 1 ------------------------------------
+
+        for(int n=0;n<layer_num-2;n++){
+            for(int i=0;i<m;i++){
+                for(int j=0;j<layer_size[n+1];j++){
+                    activ[n+1][i][j]=Theta[n][0][j];
+                    for(int k=1;k<layer_size[n]+1;k++){
+                        activ[n+1][i][j]=activ[n][i][k-1]*
+                            Theta[n][k][j]+activ[n+1][i][j];
+                        reg_term=pow(Theta[n][k][j],2)/m+reg_term;
+                    }
+                    activ[n+1][i][j]=1.0/(1.0+exp(-activ[n+1][i][j]));
+                }
+            }
+        }
+
+        for(int i=0;i<m;i++){
+            for(int j=0;j<layer_size[layer_num-1];j++){
+                out[i][j]=Theta[layer_num-2][0][j];
+                for(int k=1;k<layer_size[layer_num-2]+1;k++){
+                    out[i][j]=activ[layer_num-2][i][k-1]
+                        *Theta[layer_num-2][k][j]
+                        +out[i][j];
+                    reg_term=pow(Theta[layer_num-2][k][j],2)/m+reg_term;
+                }
+                out[i][j]=1.0/(1.0+exp(-out[i][j]));
+            }
+        }
+
+        // y is not reformated,
+        // instead it is compared to the element column on each iteration
+        for(int i=0;i<m;i++){
+            for(int j=0;j<layer_size[layer_num-1];j++){
+                if(y[i]==j+1) J=J-log(out[i][j]);
+                else J=J-log(1-out[i][j]);
+            }
+        }
+
+        J=J/m;
+
+        // reg_term is computed for each Theta separately and accomulated
+        reg_term=lambda/(2*m)*reg_term;
+        J=J+reg_term;
+
+        //------------------------------------ Part 2 ------------------------------------
+
+        // y is not reformated,
+        // instead it is compared to the element column on each iteration
+        for(int i=0;i<m;i++){
+            for(int j=0;j<layer_size[layer_num-1];j++){
+                if(y[i]==j+1) delta[layer_num-2][i][j]=out[i][j]-1;
+                else delta[layer_num-2][i][j]=out[i][j];
+            }
+        }
+
+        for(int k=0;k<m;k++){
+            for(int i=0;i<layer_size[layer_num-1];i++){
+                Theta_grad[layer_num-2][i][0]=
+                    Theta_grad[layer_num-2][i][0]+delta[layer_num-2][k][i];
+                if(k==m-1) Theta_grad[layer_num-2][i][0]=
+                    (Theta_grad[layer_num-2][i][0]/m);
+                for(int j=1;j<layer_size[layer_num-2]+1;j++){
+                    Theta_grad[layer_num-2][i][j]=
+                        Theta_grad[layer_num-2][i][j]+delta[layer_num-2][k][i]
+                        *activ[layer_num-2][k][j-1];
+                    if(k==m-1) Theta_grad[layer_num-2][i][j]=
+                        Theta_grad[layer_num-2][i][j]/m
+                        +((lambda/m)*Theta[layer_num-2][j][i]);
+                }
+            }
+        }
+
+        for(int n=layer_num-3;n>=0;n--){
+            for(int i=0;i<m;i++){
+                for(int j=0;j<layer_size[n+1];j++){
+                    for(int k=0;k<layer_size[n+2];k++){
+                        delta[n][i][j]=delta[n+1][i][k]
+                        *Theta[n+1][j+1][k]+delta[n][i][j];
+                    }
+                    delta[n][i][j]=delta[n][i][j]
+                        *(activ[n+1][i][j]*(1-activ[n+1][i][j]));
+                    Theta_grad[n][j][0]=Theta_grad[n][j][0]
+                            +(delta[n][i][j]);
+                    for(int k=0;k<layer_size[n];k++){
+                        Theta_grad[n][j][k+1]=Theta_grad[n][j][k+1]
+                            +(delta[n][i][j]*activ[n][i][k]);
+                    }
+                }
+            }
+            for(int i=0;i<layer_size[n+1];i++){
+                Theta_grad[n][i][0]=Theta_grad[n][i][0]/m;
+                for(int j=1;j<layer_size[n]+1;j++){
+                    Theta_grad[n][i][j]=
+                        (Theta_grad[n][i][j]+lambda*
+                        Theta[n][j][i])/m;
+                }
+            }
+        }
+
+        // Unrolling gradients
+        // It is done for Theta1 and Theta2 induvidually
+
+        int disp=0;
+        for(int n=0;n<layer_num-1;n++){
+            for(int j=0;j<layer_size[n]+1;j++){
+                for(int i=0;i<layer_size[n+1];i++){
+                    grad[i+(j*layer_size[n+1])+disp]=Theta_grad[n][i][j];
+                }
+            }
+            disp=theta_size[n]+disp;
+        }
+
+        return J;
+    }
