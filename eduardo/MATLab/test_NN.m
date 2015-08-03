@@ -1,195 +1,144 @@
-%% Isolated Word Recognition using Neural Networks
-    % Author: Leiming Yu, ylm@ece.neu.edu
-    %         Northeastern University, Boston, MA, USA
-    % Improved by: Eduardo Augusto Tissot, tissoted@gmail.com
-    % 
-    % The NN code is referred from Machine Learning Course (Andrew Ng), Cousera
 
-    clear
-    clc
+%% Initialization
+clear ; close all; clc
 
-    [audio_signals, word_labels] = load_audio_from_folder('database');
-    [unique_word_labels, ~, indices] = unique(word_labels);
+%% Setup the parameters you will use for this exercise
+input_layer_size  = 400;  % 20x20 Input Images of Digits
+hidden_layer_size = 25;   % 25 hidden units
+num_labels = 10;          % 10 labels, from 1 to 10
+layer_size=[input_layer_size;input_layer_size;num_labels];
+layer_num=size(layer_size,1);
+                          % (note that we have mapped "0" to label 10)
+lambda=0.03;
+learning_rate=0.005;
+momentum=0.9;
+batch_size=100;
+epochs=50;
 
-    unique_words = length(unique_word_labels);
-    % wordHMMs = word_hmm(1,unique_words);
+op=2;
 
-    % configure the training set and testing set
-    training_set = cell(1, unique_words);
-    testing_set  = cell(1, unique_words);
+results=cell(2,1);
+for i=1:2
+    results{i}=struct('time',[],'accuracy',[]);
+    results{i}.time=zeros(10,1);
+    results{i}.accuracy=zeros(10,1);
+end
 
-    for i = 1:unique_words
+for op=1:2
+    for e=1:4
+epochs=25*e;
+%% =========== Part 1: Loading and Visualizing Data =============
+%  We start the exercise by first loading and visualizing the dataset. 
+%  You will be working with a dataset that contains handwritten digits.
+%
 
-        % concatinate the speech samples
-        org_word = audio_signals(indices==i);
+% Load Training Data
+fprintf('Loading and Visualizing Data ...\n')
 
-        % separate to training / testing sets, with ratio 0.8
-        % fixme: add cross validation sets
-        ind = randperm(length(org_word));
-        training_sample_num = ceil(length(org_word) * 0.8);
+load('ex4data1.mat');
+m = size(X, 1);
 
-        training_samples = org_word( ind(1:training_sample_num) );
-        testing_samples  = org_word( ind(training_sample_num + 1 : end) );
 
-        training_set{i} = training_samples;
-        testing_set{i}  = testing_samples;
+%% ================ Part 6: Initializing Pameters ================
+%  In this part of the exercise, you will be starting to implment a two
+%  layer neural network that classifies digits. You will start by
+%  implementing a function to initialize the weights of the neural network
+%  (randInitializeWeights.m)
 
+fprintf('\nInitializing Neural Network Parameters ...\n')
+
+intial_Theta=cell(layer_num-1);
+for n=1:layer_num-1
+    initial_Theta{n}=randInitializeWeights(layer_size(n),layer_size(n+1));
+end
+
+initial_nn_params=[];
+% Unroll parameters
+for n=1:layer_num-1
+    initial_Theta{n}=reshape(initial_Theta{n},[],1);
+    initial_nn_params=[initial_nn_params;initial_Theta{n}];
+end
+
+%% =================== Part 8: Training NN ===================
+%  You have now implemented all the code necessary to train a neural 
+%  network. To train your neural network, we will now use "fmincg", which
+%  is a function which works similarly to "fminunc". Recall that these
+%  advanced optimizers are able to train our cost functions efficiently as
+%  long as we provide them with the gradient computations.
+%
+fprintf('\nTraining Neural Network... \n')
+
+Theta=cell(layer_num-1,1);
+
+if op==1
+%  After you have completed the assignment, change the MaxIter to a larger
+%  value to see how more training helps.
+options = optimset('MaxIter', epochs);
+
+tic;
+X=scaling(X);
+
+% Create "short hand" for the cost function to be minimized
+costFunction = @(p) nnCostFunction(p, ...
+                                   layer_size, ...
+                                   layer_num, ...
+                                   X, y, lambda);
+
+% Now, costFunction is a function that takes in only one argument (the
+% neural network parameters)
+[nn_params, cost] = fmincg(costFunction, initial_nn_params, options);
+results{op}.time(e)=toc;
+fprintf('\nTraining Time: %f\n',results{op}.time(e));
+end
+
+if op==2
+costFunction = @(p,in,out) nnCostFunction(p, ...
+                                   layer_size, ...
+                                   layer_num, ...
+                                   in, out, lambda);
+tic;
+
+X=scaling(X);
+
+[nn_params, cost] = miniBatch(costFunction,initial_nn_params,X,y,...
+                        learning_rate,momentum,batch_size,epochs);
+results{op}.time(e)=toc;
+fprintf('\nTraining Time: %f\n',results{op}.time(e));
+end
+
+% Initializing reshape range
+params_to=0;
+
+% Reshape Theta{1} to Theta{layer_num-1}
+for n=1:(layer_num-1)
+    params_from=params_to+1;    
+    params_to=params_to+(layer_size(n+1) * (layer_size(n) + 1));
+    Theta{n}=reshape(nn_params(params_from : params_to), ...
+                 layer_size(n+1), (layer_size(n) + 1));
+end
+fprintf('Program paused. Press enter to continue.\n');
+
+
+%% ================= Part 9: Visualize Weights =================
+%  You can now "visualize" what the neural network is learning by 
+%  displaying the hidden units to see what features they are capturing in 
+%  the data.
+
+fprintf('\nVisualizing Neural Network... \n')
+
+displayData(Theta{1}(:, 2:end));
+
+fprintf('\nProgram paused. Press enter to continue.\n');
+
+%% ================= Part 10: Implement Predict =================
+%  After training the neural network, we would like to use it to predict
+%  the labels. You will now implement the "predict" function to use the
+%  neural network to predict the labels of the training set. This lets
+%  you compute the training set accuracy.
+
+
+pred = predict(Theta, X, layer_num);
+fprintf('\nTraining Set Accuracy for model: %f\n', mean(double(pred == y)) * 100);
+results{op}.accuracy(e)= mean(double(pred == y)) * 100;
     end
-
-
-    fs = 8000; % 8 KHz as sampling freq
-
-    % training NN
-    fprintf('\nTraining Neural Network... \n')
-
-    % configure
-    layer_num=3;
-    input_layer_size  = 195;           % 195 MFCCs ( each sample )
-    num_labels        = unique_words;  % 7 unique words
-    hidden_layer_size=zeros(layer_num-2,1);
-    hidden_layer_size(1:layer_num-2)=31;
-    layer_size=[input_layer_size; hidden_layer_size; num_labels];
-
-    trained_nn = cell(1, unique_words);
-
-    % go through each unique words
-    for id = 1:length(unique_word_labels)
-
-        fprintf('Training on ''%s''...\n', char(unique_word_labels(id)) );
-        % load samples
-        training_samples = training_set{id};
-
-        % make sure the input for each record is the same length
-        % fixme: how to make sure generate the same feature dimensions for NN
-        % row : data
-        % col : sample id
-        speech = trimSig(training_samples);
-
-        % feature array for all the samples
-        % 13 coef/frame * 15 (frames) = 195(coef. per speech sample)
-        % row : sample id
-        % col : features
-        X = zeros(size(speech, 2), 195);
-
-
-        % extract feature for each speech sample
-        for sid = 1 : size(speech, 2)  
-            observations = feature_mfcc(speech(:, sid), fs);
-            frame_num =  size(observations,2);
-            if frame_num < 15
-                fprintf('not enough samples');
-                exit();
-            end
-            midpoint = ceil(frame_num / 2);
-
-
-            % 3 frames at the beginning,
-            % 9 frames in the middle
-            % 3 frames at the end
-            fmt_obs = [observations(:,(1:3)), ...
-                observations(:, (midpoint-4: midpoint+4)), ...
-                observations(:, (end-2:end))];
-
-            % reshape: the output is in column, transpose it to row
-            X(sid, :) = reshape(fmt_obs, numel(fmt_obs),1)';
-        end
-
-        y = zeros(size(X,1), 1);
-        y(:) = id;
-
-        initialTheta=cell(layer_num-1,1);
-        % padded 1s for the theta
-        for n=1:layer_num-1
-            initialTheta{n}=randInitializeWeights(layer_size(n),layer_size(n+1));
-        end
-
-        % Unroll parameters
-        for n=1:layer_num-1
-            initialTheta{n}=reshape(initialTheta{n},[],1);
-        end
-        initial_params=cell2mat(initialTheta);
-        initial_params=initial_params(:);
-
-        % training iterations
-        options = optimset('MaxIter', 50);
-
-        % regularization
-        lambda = 0.1;
-
-        % Create "short hand" for the cost function to be minimized
-        costFunction = @(p) nnCostFunction(p, ...
-            layer_size, ...
-            layer_num, X, y, lambda);
-
-        % Now, costFunction is a function that takes in only one argument (the
-        % neural network parameters)
-        [nn_params, cost] = fmincg(costFunction, initial_params, options);
-
-        % Obtain Theta back from nn_params
-        Theta=cell(layer_num-1,1); % Creating a matrix cell array for each Theta
-
-        % Initializing reshape range
-        params_to=0;
-
-        % Reshape Theta{1} to Theta{layer_num-1}
-        for n=1:(layer_num-1)
-            params_from=params_to+1;
-            params_to=params_to+(layer_size(n+1) * (layer_size(n) + 1));
-            Theta{n}=reshape(nn_params(params_from : params_to), ...
-                         layer_size(n+1), (layer_size(n) + 1));
-        end
-
-        % save Theta1 and Theta2 as the NN parameters for current word
-
-        trained_nn{id} = {Theta};
-
-    end
-
-
-    % Test
-
-    fprintf('\nPredicting using NN ...\n');
-
-    % read testing set for each word
-    for wid = 1 : length(unique_word_labels)
-
-        fprintf('Target word : ''%s''', char(unique_word_labels(id)) );
-
-        % load Xtest (test samples)
-        testing_samples = testing_set{wid};
-
-        % extract features
-        speech = trimSig(testing_samples);
-        Xtest = zeros(size(speech, 2), 195);
-        for sid = 1 : size(speech, 2)
-            observations = feature_mfcc(speech(:, sid), fs);
-            frame_num =  size(observations,2);
-            if frame_num < 15
-                fprintf('not enough samples');
-                exit();
-            end
-            midpoint = ceil(frame_num / 2);
-
-            fmt_obs = [observations(:,(1:3)), ...
-                observations(:, (midpoint-4: midpoint+4)), ...
-                observations(:, (end-2:end))];
-
-            Xtest(sid, :) = reshape(fmt_obs, numel(fmt_obs),1)';
-        end
-
-        Theta=cell(layer_num-1,1);
-        % load theta(s)
-        thetas = trained_nn{wid};
-        for n=1:layer_num-1
-        Theta{n}=thetas{1}{n};
-        end
-
-        % prediction
-        pred = predict(Theta, Xtest,layer_num);
-
-        ytest = zeros(size(speech, 2),1);
-        ytest(:) = wid;
-
-        fprintf('\nTraining Set Accuracy: %f\n', mean(double(pred == ytest)) * 100);
-
-    end
+end
